@@ -1,5 +1,5 @@
-// RFC Layer 1 then classify then policy/veto mapping. Layer 1 halt is not a
-// Decision here. High general_qa looks up KnowledgeBase and may draft.
+// RFC Layer 1 then classify then policy or grounded draft. Layer 1 halt is
+// not a Decision here. High general_qa drafts only from retrieved sources.
 
 import { scrubDirectIdentifiers } from './direct-identifiers.js'
 import { knowledgeBase } from './knowledge-base.js'
