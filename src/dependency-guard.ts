@@ -16,6 +16,7 @@ export class DependencyTimeoutError extends Error {
   }
 }
 
+// Sticky open after a failure. RFC recovery thresholds need production evidence.
 export class DependencyCircuits {
   readonly #open = new Set<DependencyOperation>()
 
