@@ -9,10 +9,19 @@ export type ClassifyInput = {
   readonly text: string
 }
 
+export type SupportVetoClass =
+  | 'advice_request'
+  | 'account_record_lookup'
+  | 'account_mutation'
+  | 'insufficient_information'
+  | 'out_of_scope'
+  | 'mixed_intent'
+
 export type Classification = {
-  readonly category: TriageCategory
+  readonly category: TriageCategory | null
   readonly confidence: ClassificationConfidence
   readonly routingSummary?: string
+  readonly veto?: SupportVetoClass
 }
 
 export type DraftResolutionInput = {

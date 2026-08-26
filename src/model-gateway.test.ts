@@ -75,6 +75,24 @@ describe('FakeModelGateway.classify', () => {
     })
   })
 
+  it('can return a Support veto class instead of an Intake Category', async () => {
+    const gateway = new FakeModelGateway({
+      classify: {
+        result: {
+          category: null,
+          confidence: 'high',
+          veto: 'advice_request',
+        },
+      },
+    })
+
+    await expect(gateway.classify({ text: sanitizedText })).resolves.toEqual({
+      category: null,
+      confidence: 'high',
+      veto: 'advice_request',
+    })
+  })
+
   it('records only sanitized text and never receives memberRef or claims', async () => {
     const gateway = new FakeModelGateway()
 
