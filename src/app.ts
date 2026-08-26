@@ -2,8 +2,10 @@
 // JSON. Layer 1 halt maps here (sensitive_signal → legal_compliance; empty
 // text → support / insufficient_information). No send path, Case, or Approval
 // Task. Audit log is a six-field allowlist emitted only after DecisionSchema
-// validation on the 200 path; raw Intake, prompts, draftResponse, and route
-// are never logged.
+// validation on the 200 path. Decision.route is a routing payload and
+// draftResponse can echo Intake-like text, so neither is logged even though
+// both are Decision fields. Raw Intake, prompts, memberRef, and claims never
+// enter the logger.
 
 import { Hono } from 'hono'
 
