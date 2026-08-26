@@ -1,7 +1,8 @@
 // RFC Layer 1 then classify then policy or grounded draft. Layer 1 halt is
 // not a Decision here. High general_qa drafts only from retrieved sources.
-// KnowledgeBase, classify, and draftResolution fail closed: timeout is
-// deadline_exceeded; exception or open circuit is dependency_failed.
+// Malformed draft payloads and citations outside that set fail closed as
+// citation_invalid. KnowledgeBase, classify, and draftResolution fail closed:
+// timeout is deadline_exceeded; exception or open circuit is dependency_failed.
 
 import {
   callGuarded,
