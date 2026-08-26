@@ -2,10 +2,9 @@
  * Fixture-backed Support guards for personal-account Intakes per RFC
  * "Support, no draft (and no classify when the guard is deterministic)".
  *
- * Advice, personal-record lookup, and account-mutation matches route to
- * Support without classification. Phrase families are evaluated in RFC
- * guard order; the first match wins. APR-definition how-tos are not
- * personal-record lookups. Fixtures are synthetic only.
+ * Phrase families are evaluated in RFC guard order; the first match wins.
+ * APR-definition how-tos are not personal-record lookups. Fixtures are
+ * synthetic only.
  */
 import type { ReasonCode } from './schemas.js'
 
@@ -50,12 +49,6 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
-function support(
-  reasonCode: PersonalAccountGuardMatch['reasonCode'],
-): PersonalAccountGuardMatch {
-  return { destination: 'support', reasonCode, shouldClassify: false }
-}
-
 export function detectPersonalAccountGuard(
   text: string,
 ): PersonalAccountGuardMatch | null {
@@ -63,8 +56,14 @@ export function detectPersonalAccountGuard(
   if (normalized.length === 0) return null
 
   for (const family of phraseFamilies) {
-    if (family.phrases.some((phrase) => normalized.includes(phrase))) {
-      return support(family.reasonCode)
+    if (!family.phrases.some((phrase) => normalized.includes(phrase))) {
+      continue
+    }
+
+    return {
+      destination: 'support',
+      reasonCode: family.reasonCode,
+      shouldClassify: false,
     }
   }
 

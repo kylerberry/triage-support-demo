@@ -89,8 +89,9 @@ describe('detectPersonalAccountGuard', () => {
   it('emits reason codes that exist on ReasonCodeSchema', () => {
     for (const [text] of matchingFixtures) {
       const result = detectPersonalAccountGuard(text)
-      expect(result).not.toBeNull()
-      if (result === null) continue
+      if (result === null) {
+        throw new Error('expected a personal-account Support match')
+      }
       expect(ReasonCodeSchema.options).toContain(result.reasonCode)
     }
   })
