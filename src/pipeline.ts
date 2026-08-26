@@ -1,7 +1,8 @@
 // RFC Layer 1 then classify then policy/veto mapping. Layer 1 halt is not a
-// Decision here. High general_qa keeps draftResponse null until KnowledgeBase.
+// Decision here. High general_qa looks up KnowledgeBase and may draft.
 
 import { scrubDirectIdentifiers } from './direct-identifiers.js'
+import { knowledgeBase } from './knowledge-base.js'
 import type {
   Classification,
   ClassificationConfidence,
@@ -57,10 +58,43 @@ function supportRouteDecision(
   }
 }
 
-function mapClassificationToDecision(
+async function groundedGeneralQaDecision(
+  intakeId: string,
+  sanitizedText: string,
+  gateway: ModelGateway,
+): Promise<Decision> {
+  const sources = knowledgeBase.find(sanitizedText)
+  if (sources.length === 0) {
+    return supportRouteDecision(intakeId, 'high', ['no_knowledge_sources'])
+  }
+
+  const draft = await gateway.draftResolution({
+    text: sanitizedText,
+    sources,
+  })
+  const retrieved = new Set(sources.map((source) => source.citationId))
+  if (!draft.citations.every((citationId) => retrieved.has(citationId))) {
+    return supportRouteDecision(intakeId, 'high', ['citation_invalid'])
+  }
+
+  return {
+    intakeId,
+    category: 'general_qa',
+    action: categoryPolicies.general_qa.action,
+    classificationConfidence: 'high',
+    humanApprovalRequired: true,
+    reasonCodes: ['knowledge_sources_found'],
+    draftResponse: draft,
+    route: null,
+  }
+}
+
+async function mapClassificationToDecision(
   intakeId: string,
   classification: Classification,
-): Decision {
+  sanitizedText: string,
+  gateway: ModelGateway,
+): Promise<Decision> {
   if (classification.veto) {
     return supportRouteDecision(intakeId, classification.confidence, [
       classification.veto,
@@ -118,19 +152,8 @@ function mapClassificationToDecision(
         },
       }
     }
-    case 'general_qa': {
-      const policy = categoryPolicies.general_qa
-      return {
-        intakeId,
-        category: 'general_qa',
-        action: policy.action,
-        classificationConfidence: 'high',
-        humanApprovalRequired: true,
-        reasonCodes: [],
-        draftResponse: null,
-        route: null,
-      }
-    }
+    case 'general_qa':
+      return groundedGeneralQaDecision(intakeId, sanitizedText, gateway)
   }
 }
 
@@ -155,6 +178,11 @@ export async function runPipeline(
     sanitizedText,
     classification,
     directIdentifiersReplaced: sanitizedText !== rawText,
-    decision: mapClassificationToDecision(intakeId, classification),
+    decision: await mapClassificationToDecision(
+      intakeId,
+      classification,
+      sanitizedText,
+      gateway,
+    ),
   }
 }

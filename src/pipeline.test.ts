@@ -9,8 +9,16 @@ import type { Decision } from './schemas.js'
 const intakeId = 'intake-n11'
 const howTo = 'How do I reset my password?'
 const howToWithEmail = 'How do I reset my password? Email me at ops@corp.io'
+const sanitizedHowToWithEmail = 'How do I reset my password? Email me at [email]'
+const noSourceQuery = 'What are your branch hours?'
 const sensitive = 'I filed a CFPB complaint about misleading rates'
 const personalAccount = 'What is my APR?'
+
+const passwordResetSource = {
+  citationId: 'kb.password-reset.v1',
+  excerpt:
+    'To reset a password, open the sign-in page, choose Forgot password, and follow the link sent to the email address on the account.',
+} as const
 
 function supportDecision(
   reasonCodes: Decision['reasonCodes'],
@@ -39,8 +47,11 @@ const expectedGeneralQaDecision: Decision = {
   action: 'draft_resolution',
   classificationConfidence: 'high',
   humanApprovalRequired: true,
-  reasonCodes: [],
-  draftResponse: null,
+  reasonCodes: ['knowledge_sources_found'],
+  draftResponse: {
+    text: passwordResetSource.excerpt,
+    citations: ['kb.password-reset.v1'],
+  },
   route: null,
 }
 
@@ -101,15 +112,17 @@ describe('runPipeline', () => {
 
     expect(result).toEqual({
       status: 'continued',
-      sanitizedText: 'How do I reset my password? Email me at [email]',
+      sanitizedText: sanitizedHowToWithEmail,
       classification: { category: 'general_qa', confidence: 'high' },
       directIdentifiersReplaced: true,
       decision: expectedGeneralQaDecision,
     })
     expect(gateway.classifyCalls).toEqual([
-      { text: 'How do I reset my password? Email me at [email]' },
+      { text: sanitizedHowToWithEmail },
     ])
-    expect(gateway.draftResolutionCalls).toEqual([])
+    expect(gateway.draftResolutionCalls).toEqual([
+      { text: sanitizedHowToWithEmail, sources: [passwordResetSource] },
+    ])
   })
 
   it('continues to classify after a no-op scrub instead of applying Support phrase guards', async () => {
@@ -149,7 +162,7 @@ describe('runPipeline', () => {
     expect(result.sanitizedText).toBe(howTo)
     expect(result.directIdentifiersReplaced).toBe(false)
     expect(gateway.classifyCalls).toHaveLength(1)
-    expect(gateway.draftResolutionCalls).toEqual([])
+    expect(gateway.draftResolutionCalls).toHaveLength(1)
   })
 
   it('never forwards memberRef or claims to classify', async () => {
@@ -276,14 +289,74 @@ describe('classification → Decision mapping', () => {
     expect(DecisionSchema.safeParse(decision).success).toBe(true)
   })
 
-  it('uses general_qa policy action, leaves route null, and does not draft', async () => {
-    const decision = await decisionFor({
-      category: 'general_qa',
-      confidence: 'high',
+  it('uses general_qa policy action, drafts from retrieved KnowledgeBase sources, and leaves route null', async () => {
+    const gateway = new FakeModelGateway({
+      classify: {
+        result: { category: 'general_qa', confidence: 'high' },
+      },
     })
+    const result = await runPipeline(howTo, intakeId, gateway)
 
-    expect(decision).toEqual(expectedGeneralQaDecision)
-    expect(decision.action).toBe(categoryPolicies.general_qa.action)
+    expect(result.status).toBe('continued')
+    if (result.status !== 'continued') return
+    expect(result.decision).toEqual(expectedGeneralQaDecision)
+    expect(result.decision.action).toBe(categoryPolicies.general_qa.action)
+    expect(gateway.draftResolutionCalls).toEqual([
+      { text: howTo, sources: [passwordResetSource] },
+    ])
+    expect(DecisionSchema.safeParse(result.decision).success).toBe(true)
+  })
+
+  it('routes high general_qa to support with no_knowledge_sources when retrieval is empty', async () => {
+    const gateway = new FakeModelGateway({
+      classify: {
+        result: { category: 'general_qa', confidence: 'high' },
+      },
+    })
+    const result = await runPipeline(noSourceQuery, intakeId, gateway)
+
+    expect(result.status).toBe('continued')
+    if (result.status !== 'continued') return
+    expect(result.decision).toEqual(
+      supportDecision(['no_knowledge_sources'], 'high'),
+    )
+    expect(gateway.draftResolutionCalls).toEqual([])
+    expect(DecisionSchema.safeParse(result.decision).success).toBe(true)
+  })
+
+  it('discards the draft and routes to support with citation_invalid when a citation is outside the retrieved set', async () => {
+    const gateway = new FakeModelGateway({
+      classify: {
+        result: { category: 'general_qa', confidence: 'high' },
+      },
+      draftResolution: {
+        result: {
+          text: 'Check the APR table.',
+          citations: ['kb.apr-meaning.v1'],
+        },
+      },
+    })
+    const result = await runPipeline(howTo, intakeId, gateway)
+
+    expect(result.status).toBe('continued')
+    if (result.status !== 'continued') return
+    expect(result.decision).toEqual(
+      supportDecision(['citation_invalid'], 'high'),
+    )
+    expect(gateway.draftResolutionCalls).toEqual([
+      { text: howTo, sources: [passwordResetSource] },
+    ])
+    expect(DecisionSchema.safeParse(result.decision).success).toBe(true)
+  })
+
+  it('lets a Support veto beat high general_qa drafting', async () => {
+    await expect(
+      decisionFor({
+        category: 'general_qa',
+        confidence: 'high',
+        veto: 'advice_request',
+      }),
+    ).resolves.toEqual(supportDecision(['advice_request'], 'high'))
   })
 
   it.each([
