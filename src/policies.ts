@@ -27,9 +27,9 @@ export type CategoryPolicy = {
  * There is no default policy: lookups are total over PolicyCategory, and an
  * unknown or null category must be handled by the caller, not fallen back.
  *
- * n11 must copy `action` and, when non-null, `destination` into the Decision.
- * It must not copy `review` into `route.destination`. general_qa leaves
- * `route` null.
+ * The pipeline copies `action` and, when non-null, `destination` into the
+ * Decision. It must not copy `review` into `route.destination`. general_qa
+ * leaves `route` null.
  */
 export const categoryPolicies = {
   general_qa: {

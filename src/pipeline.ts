@@ -1,4 +1,5 @@
-// RFC Layer 1 then classify then policy/veto mapping. Drafting is later.
+// RFC Layer 1 then classify then policy/veto mapping. Layer 1 halt is not a
+// Decision here. High general_qa keeps draftResponse null until KnowledgeBase.
 
 import { scrubDirectIdentifiers } from './direct-identifiers.js'
 import type {
