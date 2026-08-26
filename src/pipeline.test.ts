@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { DependencyCircuits } from './dependency-guard.js'
 import { FakeModelGateway, type Classification } from './model-gateway.js'
 import { categoryPolicies } from './policies.js'
-import { runPipeline } from './pipeline.js'
+import { runPipeline, type PipelineDeps } from './pipeline.js'
 import { DecisionSchema } from './schemas.js'
 import type { Decision } from './schemas.js'
 
@@ -370,4 +371,201 @@ describe('classification → Decision mapping', () => {
       ).resolves.toEqual(supportDecision([reasonCode], confidence))
     },
   )
+})
+
+describe('dependency failures', () => {
+  const highGeneralQa = {
+    classify: { result: { category: 'general_qa', confidence: 'high' } },
+  } as const
+
+  async function continuedDecision(
+    gateway: FakeModelGateway,
+    deps?: PipelineDeps,
+    text = howTo,
+  ) {
+    const result = await runPipeline(text, intakeId, gateway, deps)
+    expect(result.status).toBe('continued')
+    if (result.status !== 'continued') {
+      throw new Error('expected pipeline to continue')
+    }
+    expect(DecisionSchema.safeParse(result.decision).success).toBe(true)
+    return result
+  }
+
+  it('classify timeout yields Support with deadline_exceeded', async () => {
+    const gateway = new FakeModelGateway({
+      classify: { failure: 'timeout', timeoutMs: 5 },
+    })
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+    })
+
+    expect(result.decision).toEqual(
+      supportDecision(['deadline_exceeded'], 'unavailable'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.classifyCalls).toEqual([{ text: howTo }])
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('classify throw yields Support with dependency_failed', async () => {
+    const gateway = new FakeModelGateway({
+      classify: { failure: 'throw' },
+    })
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+    })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'unavailable'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('draftResolution timeout after high general_qa yields Support with deadline_exceeded', async () => {
+    const gateway = new FakeModelGateway({
+      ...highGeneralQa,
+      draftResolution: { failure: 'timeout', timeoutMs: 5 },
+    })
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+    })
+
+    expect(result.classification).toEqual({
+      category: 'general_qa',
+      confidence: 'high',
+    })
+    expect(result.decision).toEqual(
+      supportDecision(['deadline_exceeded'], 'high'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.classifyCalls).toHaveLength(1)
+    expect(gateway.draftResolutionCalls).toEqual([
+      { text: howTo, sources: [passwordResetSource] },
+    ])
+  })
+
+  it('draftResolution throw after high general_qa yields Support with dependency_failed', async () => {
+    const gateway = new FakeModelGateway({
+      ...highGeneralQa,
+      draftResolution: { failure: 'throw' },
+    })
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+    })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'high'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.classifyCalls).toHaveLength(1)
+    expect(gateway.draftResolutionCalls).toHaveLength(1)
+  })
+
+  it('knowledge-base throw yields Support and skips draftResolution', async () => {
+    const gateway = new FakeModelGateway(highGeneralQa)
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+      knowledge: {
+        find() {
+          throw new Error('knowledge lookup failed')
+        },
+      },
+    })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'high'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('knowledge-base timeout yields Support and skips draftResolution', async () => {
+    const gateway = new FakeModelGateway(highGeneralQa)
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+      timeoutMs: 20,
+      knowledge: {
+        find() {
+          return new Promise(() => {})
+        },
+      },
+    })
+
+    expect(result.decision).toEqual(
+      supportDecision(['deadline_exceeded'], 'high'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('open classify circuit bypasses classify and routes to Support', async () => {
+    const circuits = new DependencyCircuits()
+    circuits.open('classify')
+    const gateway = new FakeModelGateway()
+    const result = await continuedDecision(gateway, { circuits })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'unavailable'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.classifyCalls).toEqual([])
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('open knowledge_base circuit skips lookup and drafting', async () => {
+    const circuits = new DependencyCircuits()
+    circuits.open('knowledge_base')
+    const gateway = new FakeModelGateway(highGeneralQa)
+    const result = await continuedDecision(gateway, { circuits })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'high'),
+    )
+    expect(gateway.classifyCalls).toHaveLength(1)
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('open draft_resolution circuit skips drafting after retrieval', async () => {
+    const circuits = new DependencyCircuits()
+    circuits.open('draft_resolution')
+    const gateway = new FakeModelGateway(highGeneralQa)
+    const result = await continuedDecision(gateway, { circuits })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'high'),
+    )
+    expect(result.decision.draftResponse).toBeNull()
+    expect(gateway.classifyCalls).toHaveLength(1)
+    expect(gateway.draftResolutionCalls).toEqual([])
+  })
+
+  it('a timeout opens the circuit for the next Intake', async () => {
+    const circuits = new DependencyCircuits()
+    const failing = new FakeModelGateway({
+      classify: { failure: 'timeout', timeoutMs: 5 },
+    })
+    await continuedDecision(failing, { circuits })
+
+    const next = new FakeModelGateway()
+    const result = await continuedDecision(next, { circuits })
+
+    expect(result.decision).toEqual(
+      supportDecision(['dependency_failed'], 'unavailable'),
+    )
+    expect(next.classifyCalls).toEqual([])
+  })
+
+  it('closed circuit preserves expectedGeneralQaDecision', async () => {
+    const gateway = new FakeModelGateway(highGeneralQa)
+    const result = await continuedDecision(gateway, {
+      circuits: new DependencyCircuits(),
+    })
+
+    expect(result.decision).toEqual(expectedGeneralQaDecision)
+    expect(gateway.draftResolutionCalls).toEqual([
+      { text: howTo, sources: [passwordResetSource] },
+    ])
+  })
 })

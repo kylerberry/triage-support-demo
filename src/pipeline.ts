@@ -1,8 +1,14 @@
 // RFC Layer 1 then classify then policy or grounded draft. Layer 1 halt is
 // not a Decision here. High general_qa drafts only from retrieved sources.
+// KnowledgeBase, classify, and draftResolution fail closed on timeout,
+// exception, or an open circuit.
 
+import {
+  callGuarded,
+  DependencyCircuits,
+} from './dependency-guard.js'
 import { scrubDirectIdentifiers } from './direct-identifiers.js'
-import { knowledgeBase } from './knowledge-base.js'
+import { knowledgeBase, type KnowledgeSource } from './knowledge-base.js'
 import type {
   Classification,
   ClassificationConfidence,
@@ -14,6 +20,32 @@ import {
   sensitiveSignalDetector,
   type SensitiveSignalMatch,
 } from './sensitive-signal.js'
+
+export type KnowledgeLookup = {
+  find(
+    query: string,
+  ): readonly KnowledgeSource[] | Promise<readonly KnowledgeSource[]>
+}
+
+export type PipelineDeps = {
+  readonly knowledge?: KnowledgeLookup
+  readonly circuits?: DependencyCircuits
+  readonly timeoutMs?: number
+}
+
+type DependencyContext = {
+  readonly gateway: ModelGateway
+  readonly knowledge: KnowledgeLookup
+  readonly circuits: DependencyCircuits
+  readonly timeoutMs: number
+}
+
+const defaultCircuits = new DependencyCircuits()
+const defaultTimeoutMs = 1000
+const unavailableClassification: Classification = {
+  category: null,
+  confidence: 'unavailable',
+}
 
 export type PipelineHalted =
   | {
@@ -61,17 +93,34 @@ function supportRouteDecision(
 async function groundedGeneralQaDecision(
   intakeId: string,
   sanitizedText: string,
-  gateway: ModelGateway,
+  deps: DependencyContext,
 ): Promise<Decision> {
-  const sources = knowledgeBase.find(sanitizedText)
+  const found = await callGuarded(
+    deps.circuits,
+    'knowledge_base',
+    deps.timeoutMs,
+    async () => deps.knowledge.find(sanitizedText),
+  )
+  if (!found.ok) {
+    return supportRouteDecision(intakeId, 'high', [found.reason])
+  }
+
+  const sources = found.value
   if (sources.length === 0) {
     return supportRouteDecision(intakeId, 'high', ['no_knowledge_sources'])
   }
 
-  const draft = await gateway.draftResolution({
-    text: sanitizedText,
-    sources,
-  })
+  const drafted = await callGuarded(
+    deps.circuits,
+    'draft_resolution',
+    deps.timeoutMs,
+    () => deps.gateway.draftResolution({ text: sanitizedText, sources }),
+  )
+  if (!drafted.ok) {
+    return supportRouteDecision(intakeId, 'high', [drafted.reason])
+  }
+
+  const draft = drafted.value
   const retrieved = new Set(sources.map((source) => source.citationId))
   if (!draft.citations.every((citationId) => retrieved.has(citationId))) {
     return supportRouteDecision(intakeId, 'high', ['citation_invalid'])
@@ -93,7 +142,7 @@ async function mapClassificationToDecision(
   intakeId: string,
   classification: Classification,
   sanitizedText: string,
-  gateway: ModelGateway,
+  deps: DependencyContext,
 ): Promise<Decision> {
   if (classification.veto) {
     return supportRouteDecision(intakeId, classification.confidence, [
@@ -153,7 +202,7 @@ async function mapClassificationToDecision(
       }
     }
     case 'general_qa':
-      return groundedGeneralQaDecision(intakeId, sanitizedText, gateway)
+      return groundedGeneralQaDecision(intakeId, sanitizedText, deps)
   }
 }
 
@@ -161,6 +210,7 @@ export async function runPipeline(
   rawText: string,
   intakeId: string,
   gateway: ModelGateway,
+  deps: PipelineDeps = {},
 ): Promise<PipelineResult> {
   const match = sensitiveSignalDetector.detect(rawText)
   if (match) {
@@ -171,8 +221,32 @@ export async function runPipeline(
     return { status: 'halted', reason: 'insufficient_information' }
   }
 
+  const context: DependencyContext = {
+    gateway,
+    knowledge: deps.knowledge ?? knowledgeBase,
+    circuits: deps.circuits ?? defaultCircuits,
+    timeoutMs: deps.timeoutMs ?? defaultTimeoutMs,
+  }
   const sanitizedText = scrubDirectIdentifiers(rawText)
-  const classification = await gateway.classify({ text: sanitizedText })
+  const classified = await callGuarded(
+    context.circuits,
+    'classify',
+    context.timeoutMs,
+    () => gateway.classify({ text: sanitizedText }),
+  )
+  if (!classified.ok) {
+    return {
+      status: 'continued',
+      sanitizedText,
+      classification: unavailableClassification,
+      directIdentifiersReplaced: sanitizedText !== rawText,
+      decision: supportRouteDecision(intakeId, 'unavailable', [
+        classified.reason,
+      ]),
+    }
+  }
+
+  const classification = classified.value
   return {
     status: 'continued',
     sanitizedText,
@@ -182,7 +256,7 @@ export async function runPipeline(
       intakeId,
       classification,
       sanitizedText,
-      gateway,
+      context,
     ),
   }
 }
