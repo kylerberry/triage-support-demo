@@ -1,7 +1,11 @@
 // POST /triage: parse the request contract, call the pipeline, return Decision
 // JSON. Layer 1 halt maps here (sensitive_signal → legal_compliance; empty
 // text → support / insufficient_information). No send path, Case, or Approval
-// Task. Logging redaction is a later node.
+// Task. Audit log is a six-field allowlist emitted only after DecisionSchema
+// validation on the 200 path. Decision.route is a routing payload and
+// draftResponse can echo Intake-like text, so neither is logged even though
+// both are Decision fields. Raw Intake, prompts, memberRef, and claims never
+// enter the logger.
 
 import { Hono } from 'hono'
 
@@ -12,6 +16,22 @@ import {
   type Decision,
   TriageRequestSchema,
 } from './schemas.js'
+
+export type DecisionAuditEntry = Pick<
+  Decision,
+  | 'intakeId'
+  | 'category'
+  | 'action'
+  | 'classificationConfidence'
+  | 'humanApprovalRequired'
+  | 'reasonCodes'
+>
+
+export type DecisionLogger = {
+  log(entry: DecisionAuditEntry): void
+}
+
+const noOpLogger: DecisionLogger = { log() {} }
 
 function routeToTeamDecision(
   intakeId: string,
@@ -40,7 +60,10 @@ const haltDestination = {
   insufficient_information: 'support',
 } as const
 
-export function createApp(gateway: ModelGateway) {
+export function createApp(
+  gateway: ModelGateway,
+  logger: DecisionLogger = noOpLogger,
+) {
   const app = new Hono()
 
   app.post('/triage', async (c) => {
@@ -71,6 +94,15 @@ export function createApp(gateway: ModelGateway) {
     if (!validated.success) {
       return c.json({ error: 'invalid_decision' }, 500)
     }
+
+    logger.log({
+      intakeId: validated.data.intakeId,
+      category: validated.data.category,
+      action: validated.data.action,
+      classificationConfidence: validated.data.classificationConfidence,
+      humanApprovalRequired: validated.data.humanApprovalRequired,
+      reasonCodes: validated.data.reasonCodes,
+    })
 
     return c.json(validated.data, 200)
   })
