@@ -44,7 +44,7 @@ export const TriageRequestSchema = z.object({
 
 export type TriageRequest = z.infer<typeof TriageRequestSchema>
 
-const DraftResponseSchema = z.object({
+export const DraftResponseSchema = z.object({
   text: z.string(),
   citations: z.array(z.string()),
 })
