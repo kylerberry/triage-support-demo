@@ -23,6 +23,8 @@ Use synthetic data only. Do not invent Bankrate policy, account data, integratio
 
 - Build the smallest end-to-end flow that proves the core idea.
 - Prefer explicit rules, fixtures, and understandable state over generalized frameworks or hidden behavior.
+- Production code has one pipeline: Layer 1 (Sensitive Signal, empty text, scrub) then `classify` then policy or draft. Do not add a production phrase matcher so CI can avoid `classify`.
+- “No live model” means FakeModelGateway, not “do not call classify.” Intent veto fixtures belong on the fake and in tests, not in `src/` detectors, unless the raw text must never enter a prompt (Sensitive Signals, Direct Identifiers).
 - Keep the AI decision, its rationale, and the escalation path visible in the prototype.
 - State consequential assumptions and tradeoffs in the RFC or beside the relevant code.
 - Do not add authentication, real integrations, persistence, analytics, configurability, or edge-case handling unless they are necessary to demonstrate the core flow.
@@ -35,6 +37,7 @@ Use synthetic data only. Do not invent Bankrate policy, account data, integratio
 - Every meaningful feature needs a runnable or inspectable demonstration path.
 - Before calling a case AI-resolved, verify that the response is actionable and that the case does not meet an escalation condition.
 - Escalate rather than guess when the system lacks enough information or a response could create material customer, compliance, or financial risk.
+- Do not grow a production phrase library for out-of-scope or advice. Misses are eval or Shadow Run labels.
 
 ## Documentation
 

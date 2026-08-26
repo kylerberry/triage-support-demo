@@ -27,7 +27,7 @@ These assumptions make the prototype deliberately narrow; they are not claims ab
 - Local curated help-center fixtures stand in for a production knowledge base. They prove grounded drafting only; they are not a RAG design.
 - `claims` and unused allowlisted metadata (`channel`, `locale`, `surface`) are accepted and ignored. They are reserved for a future profile or retrieval integration. Unknown metadata is dropped.
 - A real model can classify and draft often enough to show the flow. Every external dependency client is assumed to enforce an explicit timeout and surface failures as catchable errors; the finite staged pipeline therefore has no separate end-to-end request cutoff.
-- Direct Identifier scrubbing in this prototype is pattern replacement on synthetic fixtures (email, phone, SSN-like, account-number-like). It does not catch names or quasi-identifiers and is not production PII removal.
+- Direct Identifier scrubbing in this prototype is pattern replacement on synthetic fixtures (email, phone, account-number-like). SSN-like and full payment-card values are Sensitive Signals. It does not catch names or quasi-identifiers and is not production PII removal.
 - Synthetic Safety Gates validate architecture and regressions. The directional 80% goal is measured only in Shadow Run or production.
 
 ## Scope
@@ -40,7 +40,8 @@ These assumptions make the prototype deliberately narrow; they are not claims ab
 - A real model behind one `ModelGateway`, with separate `classify` and `draftResolution` operations. The scenario runner can also use deterministic fakes.
 - A local curated help-center fixture set and simple lexical retrieval.
 - Grounded General Q&A drafts with source citations.
-- Deterministic guards (Sensitive Signals, Direct Identifiers, advice, personal-record, missing information, out-of-scope, mixed intent).
+- Deterministic Layer 1 only where raw text must not enter a prompt: Sensitive Signals and Direct Identifier scrub.
+- Support vetoes (advice, personal-record, mutation, missing information, out-of-scope, mixed intent) are `classify` outcomes mapped by the pipeline. CI configures `FakeModelGateway.classify` per scenario. Do not implement those vetoes as a parallel production phrase matcher.
 - Fail-closed fallback and CI Safety Gates.
 
 ### Out of scope
@@ -146,36 +147,42 @@ type ReasonCode =
 
 | Category | Action | Destination / review | Drafting rule | Context |
 | --- | --- | --- | --- | --- |
-| General Q&A | `draft_resolution` | Support approval (not implemented) | `high` confidence; Knowledge Sources required; not advice, personal-record, mixed, or out-of-scope | Draft plus citations |
+| General Q&A | `draft_resolution` | `destination` null; `review: support_approval` (not a Support route; n11 must not copy `review` into `route.destination`) | `high` confidence; Knowledge Sources required; classify must not have returned a Support veto | Draft plus citations |
 | Product Feedback | `route_to_team` | Product | Never draft a Member response | Classifier-produced safe Routing Summary |
 | Compliance | `route_to_team` | Legal & Compliance | Never draft a Member response | Compliance Flag and `intakeId` only |
 
-## Guards
+## Layer 1 (no model)
 
-Evaluated in order on the raw Intake (Sensitive Signals) or the Sanitized Intake (the rest). The first match wins. These are explicit fixture-backed rules, not a general classifier.
+Only these steps may skip `classify`. They exist so definite never-send material does not enter a prompt.
 
 ### Sensitive Signal → Legal & Compliance, no model
 
-Compliance-sensitive material, not “mentions money or an account”:
+Compliance-sensitive material, not “mentions money or an account”. Match whole tokens or word-bounded phrases only; bare “attorney” is not a match.
 
-- Regulator, legal, or deceptive-practice claims (for example CFPB, TILA, lawsuit, attorney, “misleading rates” as a legal claim)
+- Regulator, legal, or deceptive-practice claims (for example CFPB, TILA, lawsuit, “misleading rates”, “legal claim”)
 - Fraud, identity theft, or unauthorized-access claims
 - Privacy-rights demands (delete my data, CCPA, GDPR) as a legal request
 - Discrimination or protected-class complaints
-- Full payment-card or SSN-like values (also Direct Identifiers; this path wins)
+- Full payment-card or SSN-like values (this path wins; do not scrub them into the model)
+
+Empty or whitespace-only text may return `insufficient_information` here as a structural check, not a phrase family.
 
 ### Direct Identifier → scrub, then continue
 
-Replace email, phone, SSN-like, and account-number-like patterns in synthetic fixtures. Then continue the pipeline. Residual names and quasi-identifiers may still reach the model.
+Replace email, phone, and account-number-like patterns in synthetic fixtures. Then continue. SSN-like and full payment-card values are handled by Sensitive Signal before this stage. Residual names and quasi-identifiers may still reach the model.
 
-### Support, no draft (and no classify when the guard is deterministic)
+## Classify outcomes (one production path)
 
-| Guard | Examples | Reason Code |
+After Layer 1 continues, `classify` runs on the Sanitized Intake. It returns either a Support veto class or one of the three Intake Categories plus `high | low | unavailable`.
+
+The pipeline, not the model, maps veto classes to Support Reason Codes and never drafts. CI proves this by configuring `FakeModelGateway.classify` for the RFC examples — not by a second matcher in `src/`.
+
+| Classify veto | Examples | Reason Code |
 | --- | --- | --- |
 | Advice / personalized recommendation | “Should I refinance?”, “which card should I get?”, “is this a good rate for me?” | `advice_request` |
 | Personal-record lookup | “What is my APR?”, “where is my application?” | `account_record_lookup` |
 | Account mutation | “Change my email”, “delete my saved card” | `account_mutation` |
-| Missing information | “How do I update it?”, empty or fragment text | `insufficient_information` |
+| Missing information | “How do I update it?”, fragment text | `insufficient_information` |
 | Out of scope | Competitor how-to, not-Bankrate ask, “write my appeal” | `out_of_scope` |
 | Mixed intent | How-to plus a product suggestion, or Q&A plus a complaint that is not already a Sensitive Signal | `mixed_intent` |
 
@@ -183,15 +190,17 @@ Help-center how-tos stay eligible for General Q&A after scrub: password reset, r
 
 Tradeoff: mixed intent does not split into two actions. The Intake goes to Support rather than drafting the how-to and also routing feedback.
 
+Phrase lists are not a production intent library. Misses are eval/Shadow Run labels. A Support veto may use a live `classify` call; CI uses the fake.
+
 ## Shared Pipeline
 
 ```text
 validate request and drop unknown metadata
   → Sensitive Signal on raw Intake? Legal & Compliance; no model
+  → empty/whitespace text? Support; insufficient_information; no model
   → replace Direct Identifiers
-  → advice / personal-record / mutation / missing / out-of-scope / mixed?
-       Support; no model
   → classify Sanitized Intake
+       ├─ Support veto class: Support; mapped Reason Code; no draft
        ├─ unavailable / low: Support
        ├─ high Product Feedback: Product, safe Routing Summary
        ├─ high Compliance: Legal & Compliance; no draft
@@ -205,7 +214,7 @@ validate request and drop unknown metadata
 
 On a dependency timeout or exception: discard any partial draft and Route to Support with `dependency_timeout` or `dependency_failed`. Rolling timeout and error rates may open a circuit; while open, affected Intakes bypass that dependency and Route to Support.
 
-`classify` returns a category, `high | low` confidence, and, for Product Feedback, an optional safe Routing Summary. `draftResolution` is called only for policy-eligible General Q&A. The model receives the Sanitized Intake and retrieved source excerpts only.
+`classify` returns either a Support veto class or a category plus `high | low | unavailable` and, for Product Feedback, an optional safe Routing Summary. `draftResolution` is called only for policy-eligible General Q&A. The model receives the Sanitized Intake and retrieved source excerpts only. It never receives `memberRef` or `claims`.
 
 Lexical retrieval matches any article that shares at least one non-stopword term with the query, so a single query can return more than one fixture. The drafting stage must still cite only sources from the returned set.
 
@@ -281,7 +290,7 @@ Later, not this prototype: generate Decisions for review only. Do not send Membe
 - **Sensitive Signal under/over-trigger.** Too wide and how-tos die; too narrow and protected complaints reach the model.
 - **Residual PII.** Pattern scrub misses names and quasi-identifiers.
 - **Cited but ungrounded drafts.** Citations must come from retrieved sources; the prototype does not check that the draft is entailed by those sources.
-- **Advice leakage.** The advice guard is fixture-backed and will miss some recommendation phrasing.
+- **Advice leakage.** Classify will miss some recommendation phrasing. Fail-closed + unpublished drafts + approval are the backstop, not a growing phrase list.
 - **Live-model timeout.** Two model calls under 5s can make a live demo look like Support-only; fakes exist so the happy path stays visible.
 - **Untrusted Intake text.** Prompt-injection handling is out of scope; Intake text is still untrusted input to the model.
 - **Classifier error.** A missed Compliance label after the Sensitive Signal guard is a residual leak; a Q&A mislabeled as feedback loses a draft.

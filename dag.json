@@ -31,18 +31,18 @@
     {
       "id": "n3",
       "intent": "Encode the three category policies as checked constants",
-      "change_spec": "Add typed policy constants for general_qa, product_feedback, and compliance matching the RFC table (action, destination, drafting rule, context). A CI test fails if a category is missing or a required field is absent. No runtime default policy.",
+      "change_spec": "Add typed policy constants for general_qa, product_feedback, and compliance matching the RFC table (action, destination or review, drafting rule, context). general_qa has destination null and review support_approval; routed categories have a Destination and review null. A CI test fails if a category is missing or a required field is absent. No runtime default policy. n11 must not copy review into route.destination.",
       "acceptance_criteria": [
         "Policies exist for general_qa, product_feedback, and compliance only",
-        "general_qa drafts; product_feedback routes to product; compliance routes to legal_compliance",
-        "A test fails if any policy is missing action, destination, or drafting rule"
+        "general_qa drafts with destination null and review support_approval; product_feedback routes to product; compliance routes to legal_compliance",
+        "A test fails if any policy is missing action, destination, review, or drafting rule"
       ],
       "depends_on": ["n2"]
     },
     {
       "id": "n4",
       "intent": "Detect Sensitive Signals without calling the model",
-      "change_spec": "Add a fixture-backed Sensitive Signal detector on raw Intake text: regulator/legal claims, fraud, privacy-rights demands, discrimination complaints, and full payment-card or SSN-like values. A match is Legal & Compliance with sensitive_signal. Help-center how-tos are not matches. Unit tests on RFC examples; no model.",
+      "change_spec": "Add a fixture-backed Sensitive Signal detector on raw Intake text: regulator/legal claims, fraud, privacy-rights demands, discrimination complaints, and full payment-card or SSN-like values. Match whole tokens or word-bounded phrases only; bare attorney is not a match. A match is Legal & Compliance with sensitive_signal and never calls classify. Help-center how-tos are not matches. Unit tests on RFC examples; no model.",
       "acceptance_criteria": [
         "Regulator/legal, fraud, privacy-rights, discrimination, and PAN/SSN-like text return legal_compliance with sensitive_signal and do not require classification",
         "Password-reset, APR-definition, rate-alert, and export how-tos are not Sensitive Signals"
@@ -61,23 +61,25 @@
     },
     {
       "id": "n6",
-      "intent": "Route personal-account Intakes to Support without classification",
-      "change_spec": "Add fixture-backed Support guards for advice, personal-record lookup, and account mutation. A match is Support with advice_request, account_record_lookup, or account_mutation and does not classify. APR-definition how-tos are not personal-record lookups. Unit tests on RFC examples; no model.",
+      "intent": "Teach classify fakes the personal-account Support vetoes",
+      "change_spec": "Extend ModelGateway.classify (and the CI fake) so it can return Support veto classes for advice, personal-record lookup, and account mutation. Pipeline mapping to advice_request, account_record_lookup, and account_mutation is n11. Do not add a production phrase detector. Tests configure the fake per RFC example; APR-definition how-tos are not personal-record vetoes. No live model.",
       "acceptance_criteria": [
-        "RFC examples emit advice_request, account_record_lookup, or account_mutation and do not require classification",
-        "Password-reset, APR-definition, rate-alert, and export how-tos are not matched"
+        "The classify fake can be configured so RFC advice, personal-record, and mutation examples return the matching Support veto class",
+        "Password-reset, APR-definition, rate-alert, and export how-tos are not those vetoes when the fake is configured for a how-to",
+        "No production matcher in src/ implements those vetoes by scanning Intake text"
       ],
-      "depends_on": ["n2"]
+      "depends_on": ["n9"]
     },
     {
       "id": "n7",
-      "intent": "Route un-actionable Intakes to Support without classification",
-      "change_spec": "Add fixture-backed Support guards for missing information, out-of-scope, and mixed intent. A match is Support with insufficient_information, out_of_scope, or mixed_intent and does not classify. Unit tests on RFC examples; no model.",
+      "intent": "Teach classify fakes the un-actionable Support vetoes",
+      "change_spec": "Extend the classify fake with Support veto classes for insufficient information, out-of-scope, and mixed intent. Empty or whitespace-only text may be a structural check without classify. Do not add a production phrase detector or an out-of-scope topic list. Tests configure the fake per RFC example. No live model.",
       "acceptance_criteria": [
-        "RFC examples emit insufficient_information, out_of_scope, or mixed_intent and do not require classification",
-        "A single eligible how-to with no extra intent is not matched"
+        "The classify fake can be configured so RFC missing-information, out-of-scope, and mixed-intent examples return the matching Support veto class",
+        "A single eligible how-to with no extra intent is not those vetoes when the fake is configured for a how-to",
+        "No production matcher in src/ implements out-of-scope or mixed intent by scanning Intake text"
       ],
-      "depends_on": ["n2"]
+      "depends_on": ["n9"]
     },
     {
       "id": "n8",
@@ -93,9 +95,9 @@
     {
       "id": "n9",
       "intent": "Add ModelGateway with deterministic fakes",
-      "change_spec": "Add ModelGateway.classify and ModelGateway.draftResolution. Ship deterministic fakes that return structured category/confidence/optional Routing Summary or a draft with citations, and that can simulate timeout and throw. The fake is the CI default. A real provider adapter may exist but must not be required to accept this node.",
+      "change_spec": "Add ModelGateway.classify and ModelGateway.draftResolution. Ship deterministic fakes that return a Support veto class or category/confidence/optional Routing Summary, or a draft with citations, and that can simulate timeout and throw. The fake is the CI default. A real provider adapter may exist but must not be required to accept this node.",
       "acceptance_criteria": [
-        "classify fake returns category plus high|low|unavailable and never receives memberRef or claims",
+        "classify fake returns a Support veto class or category plus high|low|unavailable and never receives memberRef or claims",
         "draftResolution fake returns text plus citations and is not invoked by this node's tests except directly",
         "Fake can be configured to time out or throw so later pipeline tests can exercise fallback"
       ],
@@ -103,25 +105,26 @@
     },
     {
       "id": "n10",
-      "intent": "Wire Intake guards in RFC order with model short-circuit",
-      "change_spec": "Add a guard runner that calls the Sensitive Signal detector on raw text, then Direct Identifier replacement, then personal-account Support guards, then un-actionable Support guards. First match wins. This node only asserts order and that a match does not call classify or draftResolution. Scrub with no Support match continues.",
+      "intent": "Wire Layer 1 then continue to classify",
+      "change_spec": "Add a runner that calls the Sensitive Signal detector on raw text, optionally treats empty or whitespace-only text as insufficient_information, then Direct Identifier replacement. A Sensitive Signal or empty-text match never calls classify or draftResolution. After a scrub the runner continues to classify. Do not call personal-account or un-actionable phrase detectors.",
       "acceptance_criteria": [
-        "Guards run Sensitive Signal, then scrub, then personal-account Support, then un-actionable Support; first match wins",
-        "A Sensitive Signal or Support match never calls classify or draftResolution",
-        "After a scrub with no Support match, the runner continues rather than routing"
+        "Runner order is Sensitive Signal, then empty-text check, then scrub, then continue",
+        "A Sensitive Signal match never calls classify or draftResolution",
+        "After a scrub the runner continues to classify rather than applying Support phrase guards"
       ],
-      "depends_on": ["n4", "n5", "n6", "n7"]
+      "depends_on": ["n4", "n5"]
     },
     {
       "id": "n11",
-      "intent": "Route high-confidence classifications from category policy",
-      "change_spec": "After the guard runner continues, classify the Sanitized Intake and apply policy constants. The pipeline, not the model, chooses action, Destination, and Reason Codes. This node does not call KnowledgeBase or draftResolution.",
+      "intent": "Map classify outcomes to policy or Support vetoes",
+      "change_spec": "After Layer 1 continues, classify the Sanitized Intake. A Support veto class routes to Support with the mapped Reason Code and no draft. A high-confidence category uses policy constants (general_qa does not draft in this node and does not copy review onto route). Low or unavailable routes to Support. The pipeline, not the model, chooses action, Destination, and Reason Codes. This node does not call KnowledgeBase or draftResolution.",
       "acceptance_criteria": [
+        "Support veto classes route to support with the mapped Reason Code and no draft",
         "High-confidence classification uses the matching policy action and Destination and does not draft",
         "Low or unavailable classification routes to support with no draft",
         "classify receives the Sanitized Intake only and never memberRef or claims"
       ],
-      "depends_on": ["n3", "n9", "n10"]
+      "depends_on": ["n3", "n6", "n7", "n9", "n10"]
     },
     {
       "id": "n12",
