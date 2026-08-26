@@ -3,8 +3,6 @@ export type KnowledgeSource = {
   readonly excerpt: string
 }
 
-type Article = KnowledgeSource
-
 const articles = [
   {
     citationId: 'kb.password-reset.v1',
@@ -26,7 +24,7 @@ const articles = [
     excerpt:
       'To export saved comparisons, open Saved comparisons, choose Export, and download the generated file.',
   },
-] as const satisfies readonly Article[]
+] as const satisfies readonly KnowledgeSource[]
 
 const stopwords = new Set([
   'a',
