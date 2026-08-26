@@ -207,6 +207,8 @@ On a dependency timeout or exception: discard any partial draft and Route to Sup
 
 `classify` returns a category, `high | low` confidence, and, for Product Feedback, an optional safe Routing Summary. `draftResolution` is called only for policy-eligible General Q&A. The model receives the Sanitized Intake and retrieved source excerpts only.
 
+Lexical retrieval matches any article that shares at least one non-stopword term with the query, so a single query can return more than one fixture. The drafting stage must still cite only sources from the returned set.
+
 ## Safety and Data Handling
 
 - Triage never authenticates.
