@@ -33,14 +33,7 @@ type PhraseFamily = {
 const phraseFamilies = [
   {
     signal: 'regulator_legal',
-    phrases: [
-      'cfpb',
-      'tila',
-      'lawsuit',
-      'attorney',
-      'misleading rates',
-      'legal claim',
-    ],
+    phrases: ['cfpb', 'tila', 'lawsuit', 'misleading rates', 'legal claim'],
   },
   {
     signal: 'fraud',
@@ -67,15 +60,27 @@ const PAN_PATTERN = /\b(?:\d{4}[- ]?){3}\d{4}\b/
 /** Full SSN-like values in 3-2-4 dashed form; phone-style 3-3-4 numbers do not match. */
 const SSN_PATTERN = /\b\d{3}-\d{2}-\d{4}\b/
 
+function tokensOf(normalized: string): Set<string> {
+  return new Set(normalized.split(/[^a-z0-9]+/).filter(Boolean))
+}
+
+function hasPhrase(normalized: string, tokens: Set<string>, phrase: string): boolean {
+  if (!phrase.includes(' ')) {
+    return tokens.has(phrase)
+  }
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escaped}\\b`).test(normalized)
+}
+
 export class SensitiveSignalDetector {
   detect(rawText: string): SensitiveSignalMatch | null {
-    // Phrases are matched by literal substring comparison on lowercased
-    // text, not a regex-joined pattern, so fixtures stay free of regex
-    // metacharacter risk.
+    // Whole tokens or word-bounded phrases only. Bare `attorney` is not a
+    // family member: "calling my attorney" is not a legal claim.
     const normalized = rawText.toLowerCase()
+    const tokens = tokensOf(normalized)
 
     for (const family of phraseFamilies) {
-      if (family.phrases.some((phrase) => normalized.includes(phrase))) {
+      if (family.phrases.some((phrase) => hasPhrase(normalized, tokens, phrase))) {
         return { reasonCode: 'sensitive_signal', signal: family.signal }
       }
     }

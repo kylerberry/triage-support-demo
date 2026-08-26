@@ -53,12 +53,18 @@ describe('sensitiveSignalDetector', () => {
     'my APR is 6.5%',
     'call me at 555-123-4567',
     'reference 123456789',
+    'utilitarian rate comparison',
+    'someone tried to defraud me of miles',
+    'this is an illegal claim about fees',
+    'I am calling my attorney',
   ])('does not flag %s as a Sensitive Signal', (rawText) => {
     expect(sensitiveSignalDetector.detect(rawText)).toBeNull()
   })
 
   it('returns only reasonCode and signal with no substring or index leak', () => {
-    const match = sensitiveSignalDetector.detect('I am calling my attorney')
+    const match = sensitiveSignalDetector.detect(
+      'I filed a CFPB complaint about misleading rates',
+    )
 
     expect(match).not.toBeNull()
     if (match === null) return
