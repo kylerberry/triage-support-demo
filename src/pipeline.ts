@@ -1,3 +1,5 @@
+// RFC Layer 1 then classify. Classification is not mapped to a Decision here.
+
 import { scrubDirectIdentifiers } from './direct-identifiers.js'
 import type { Classification, ModelGateway } from './model-gateway.js'
 import {
