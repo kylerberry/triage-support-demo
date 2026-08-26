@@ -1,7 +1,8 @@
 // RFC Layer 1 then classify then policy or grounded draft. Layer 1 halt is
 // not a Decision here. High general_qa drafts only from retrieved sources.
-// KnowledgeBase, classify, and draftResolution fail closed: timeout is
-// deadline_exceeded; exception or open circuit is dependency_failed.
+// Malformed draft payloads and citations outside that set fail closed as
+// citation_invalid. KnowledgeBase, classify, and draftResolution fail closed:
+// timeout is deadline_exceeded; exception or open circuit is dependency_failed.
 
 import {
   callGuarded,
@@ -15,7 +16,7 @@ import type {
   ModelGateway,
 } from './model-gateway.js'
 import { categoryPolicies } from './policies.js'
-import type { Decision, ReasonCode } from './schemas.js'
+import { DraftResponseSchema, type Decision, type ReasonCode } from './schemas.js'
 import {
   sensitiveSignalDetector,
   type SensitiveSignalMatch,
@@ -120,11 +121,15 @@ async function groundedGeneralQaDecision(
     return supportRouteDecision(intakeId, 'high', [drafted.reason])
   }
 
-  const draft = drafted.value
+  const parsed = DraftResponseSchema.safeParse(drafted.value)
   const retrieved = new Set(sources.map((source) => source.citationId))
-  if (!draft.citations.every((citationId) => retrieved.has(citationId))) {
+  if (
+    !parsed.success ||
+    !parsed.data.citations.every((citationId) => retrieved.has(citationId))
+  ) {
     return supportRouteDecision(intakeId, 'high', ['citation_invalid'])
   }
+  const draft = parsed.data
 
   return {
     intakeId,

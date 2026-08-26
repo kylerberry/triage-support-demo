@@ -209,6 +209,7 @@ validate request and drop unknown metadata
             ├─ no sources: Support
             └─ draftResolution with retrieved sources only
                  → citations must be from that set
+                 → malformed draft payload fails closed as citation_invalid
                  → approval-required draft
 ```
 
