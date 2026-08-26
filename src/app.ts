@@ -1,3 +1,8 @@
+// POST /triage: parse the request contract, call the pipeline, return Decision
+// JSON. Layer 1 halt maps here (sensitive_signal → legal_compliance; empty
+// text → support / insufficient_information). No send path, Case, or Approval
+// Task. Logging redaction is a later node.
+
 import { Hono } from 'hono'
 
 import { FakeModelGateway, type ModelGateway } from './model-gateway.js'
