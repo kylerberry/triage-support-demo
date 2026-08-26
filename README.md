@@ -8,6 +8,49 @@ Bring Business Team Along: [`docs/bring-business-team-along.md`](docs/bring-busi
 
 Synthetic data only. Not Bankrate production policy, not measured 80% performance.
 
+## Flow
+
+```mermaid
+flowchart TD
+  intake["Authenticated Intake\nmemberRef + text"] --> post["POST /triage"]
+  post -->|invalid body| reject["400 — no model"]
+  post -->|valid| ss{"Sensitive Signal\non raw text?"}
+
+  ss -->|yes| legal["Legal and Compliance\nsensitive_signal — no model"]
+  ss -->|no| empty{"Empty or whitespace?"}
+
+  empty -->|yes| supportEmpty["Support\ninsufficient_information — no model"]
+  empty -->|no| scrub["Replace Direct Identifiers"]
+  scrub --> classify["classify Sanitized Intake"]
+
+  classify -->|timeout / throw / open circuit| failClosed["Support\ndeadline_exceeded or dependency_failed"]
+  classify -->|Support veto| supportVeto["Support\nmapped Reason Code — no draft"]
+  classify -->|low or unavailable| supportLow["Support\nlow_confidence or classification_unavailable"]
+  classify -->|high product_feedback| product["Product\nproduct_feedback — no draft"]
+  classify -->|high compliance| legalClass["Legal and Compliance\nprotected_complaint — no draft"]
+  classify -->|high general_qa| kb["Lexical KnowledgeBase"]
+
+  kb -->|no sources| supportKb["Support\nno_knowledge_sources"]
+  kb -->|sources| draft["draftResolution\nretrieved sources only"]
+
+  draft -->|timeout / throw / open circuit| failClosed
+  draft -->|bad shape or citation not in set| supportCite["Support\ncitation_invalid"]
+  draft -->|citations subset| resolution["draft_resolution\nhumanApprovalRequired true"]
+
+  legal --> decision["Decision JSON — no send"]
+  supportEmpty --> decision
+  failClosed --> decision
+  supportVeto --> decision
+  supportLow --> decision
+  product --> decision
+  legalClass --> decision
+  supportKb --> decision
+  supportCite --> decision
+  resolution --> decision
+```
+
+Layer 1 halt (Sensitive Signal, empty text) skips the model. Identifier scrub continues. Every path still requires human approval before any Member-Facing Response; this prototype never sends one.
+
 ## Run
 
 ```bash
