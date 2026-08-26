@@ -1,0 +1,199 @@
+{
+  "meta": {
+    "spec": "docs/rfc.md — fail-closed POST /triage prototype with guards, classify/draft, and CI Safety Gates",
+    "repo": "/Users/kylerberry/Projects/bankrate-triage-support",
+    "branch": "main",
+    "created": "2026-08-25"
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "intent": "Scaffold the TypeScript Hono, Zod, and Vitest app",
+      "change_spec": "Add package.json, tsconfig, Vitest, and a Hono entrypoint so the repo can install, typecheck, and run tests. No triage behavior yet. Verify with a passing empty test suite and a process that can import the app.",
+      "acceptance_criteria": [
+        "npm test exits 0 on a bootstrapped Vitest suite",
+        "The Hono app module can be imported without throwing"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "n2",
+      "intent": "Encode the triage request and Decision contract",
+      "change_spec": "Add Zod schemas and types for TriageRequest, Decision, and the RFC ReasonCode union. Requests accept claims and allowlisted metadata but do not use them; unknown metadata is dropped. humanApprovalRequired is the literal true. Verify with schema unit tests only.",
+      "acceptance_criteria": [
+        "A valid TriageRequest parses; unknown metadata keys are stripped",
+        "claims, channel, locale, and surface are accepted and not required for a valid parse",
+        "Decision schema rejects humanApprovalRequired false and unknown reason codes",
+        "route.intakeRef, when present, must equal intakeId"
+      ],
+      "depends_on": ["n1"]
+    },
+    {
+      "id": "n3",
+      "intent": "Encode the three category policies as checked constants",
+      "change_spec": "Add typed policy constants for general_qa, product_feedback, and compliance matching the RFC table (action, destination, drafting rule, context). A CI test fails if a category is missing or a required field is absent. No runtime default policy.",
+      "acceptance_criteria": [
+        "Policies exist for general_qa, product_feedback, and compliance only",
+        "general_qa drafts; product_feedback routes to product; compliance routes to legal_compliance",
+        "A test fails if any policy is missing action, destination, or drafting rule"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n4",
+      "intent": "Detect Sensitive Signals without calling the model",
+      "change_spec": "Add a fixture-backed Sensitive Signal detector on raw Intake text: regulator/legal claims, fraud, privacy-rights demands, discrimination complaints, and full payment-card or SSN-like values. A match is Legal & Compliance with sensitive_signal. Help-center how-tos are not matches. Unit tests on RFC examples; no model.",
+      "acceptance_criteria": [
+        "Regulator/legal, fraud, privacy-rights, discrimination, and PAN/SSN-like text return legal_compliance with sensitive_signal and do not require classification",
+        "Password-reset, APR-definition, rate-alert, and export how-tos are not Sensitive Signals"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n5",
+      "intent": "Replace Direct Identifiers and continue",
+      "change_spec": "Add pattern replacement for email, phone, and account-number-like values in synthetic fixtures. The rest of the text is unchanged so later stages can run. SSN-like and PAN full values are owned by the Sensitive Signal detector, not this node. Unit tests only; no model.",
+      "acceptance_criteria": [
+        "Email, phone, and account-number-like patterns are replaced and the remainder continues",
+        "Non-identifier how-to text is unchanged"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n6",
+      "intent": "Route personal-account Intakes to Support without classification",
+      "change_spec": "Add fixture-backed Support guards for advice, personal-record lookup, and account mutation. A match is Support with advice_request, account_record_lookup, or account_mutation and does not classify. APR-definition how-tos are not personal-record lookups. Unit tests on RFC examples; no model.",
+      "acceptance_criteria": [
+        "RFC examples emit advice_request, account_record_lookup, or account_mutation and do not require classification",
+        "Password-reset, APR-definition, rate-alert, and export how-tos are not matched"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n7",
+      "intent": "Route un-actionable Intakes to Support without classification",
+      "change_spec": "Add fixture-backed Support guards for missing information, out-of-scope, and mixed intent. A match is Support with insufficient_information, out_of_scope, or mixed_intent and does not classify. Unit tests on RFC examples; no model.",
+      "acceptance_criteria": [
+        "RFC examples emit insufficient_information, out_of_scope, or mixed_intent and do not require classification",
+        "A single eligible how-to with no extra intent is not matched"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n8",
+      "intent": "Add a lexical KnowledgeBase with curated fixtures",
+      "change_spec": "Add a KnowledgeBase module and local articles that can ground the eligible how-tos in the RFC (password reset, what APR means, rate-alert setup, export saved comparisons). Retrieval is simple lexical match and returns approved excerpts with stable citation ids. Verify match and no-match without the pipeline or a model.",
+      "acceptance_criteria": [
+        "Each eligible how-to query returns at least one fixture excerpt with a citation id",
+        "A query with no overlapping terms returns an empty source set",
+        "Returned sources contain only fixture text, not model output"
+      ],
+      "depends_on": ["n1"]
+    },
+    {
+      "id": "n9",
+      "intent": "Add ModelGateway with deterministic fakes",
+      "change_spec": "Add ModelGateway.classify and ModelGateway.draftResolution. Ship deterministic fakes that return structured category/confidence/optional Routing Summary or a draft with citations, and that can simulate timeout and throw. The fake is the CI default. A real provider adapter may exist but must not be required to accept this node.",
+      "acceptance_criteria": [
+        "classify fake returns category plus high|low|unavailable and never receives memberRef or claims",
+        "draftResolution fake returns text plus citations and is not invoked by this node's tests except directly",
+        "Fake can be configured to time out or throw so later pipeline tests can exercise fallback"
+      ],
+      "depends_on": ["n2"]
+    },
+    {
+      "id": "n10",
+      "intent": "Wire Intake guards in RFC order with model short-circuit",
+      "change_spec": "Add a guard runner that calls the Sensitive Signal detector on raw text, then Direct Identifier replacement, then personal-account Support guards, then un-actionable Support guards. First match wins. This node only asserts order and that a match does not call classify or draftResolution. Scrub with no Support match continues.",
+      "acceptance_criteria": [
+        "Guards run Sensitive Signal, then scrub, then personal-account Support, then un-actionable Support; first match wins",
+        "A Sensitive Signal or Support match never calls classify or draftResolution",
+        "After a scrub with no Support match, the runner continues rather than routing"
+      ],
+      "depends_on": ["n4", "n5", "n6", "n7"]
+    },
+    {
+      "id": "n11",
+      "intent": "Route high-confidence classifications from category policy",
+      "change_spec": "After the guard runner continues, classify the Sanitized Intake and apply policy constants. The pipeline, not the model, chooses action, Destination, and Reason Codes. This node does not call KnowledgeBase or draftResolution.",
+      "acceptance_criteria": [
+        "High-confidence classification uses the matching policy action and Destination and does not draft",
+        "Low or unavailable classification routes to support with no draft",
+        "classify receives the Sanitized Intake only and never memberRef or claims"
+      ],
+      "depends_on": ["n3", "n9", "n10"]
+    },
+    {
+      "id": "n12",
+      "intent": "Draft grounded General Q&A with citation checks",
+      "change_spec": "When policy is high-confidence general_qa, look up the KnowledgeBase and call draftResolution with retrieved sources only. Accept a draft only when citations are a subset of that set. Otherwise Support with no draft. Product Feedback and Compliance still do not draft.",
+      "acceptance_criteria": [
+        "High-confidence General Q&A drafts only when sources exist and citations are a subset of the retrieved set, with humanApprovalRequired true",
+        "No sources or a citation outside the retrieved set routes to support with no_knowledge_sources or citation_invalid and no draft"
+      ],
+      "depends_on": ["n8", "n11"]
+    },
+    {
+      "id": "n13",
+      "intent": "Fail closed on timeout, exception, or open circuit",
+      "change_spec": "Wrap KnowledgeBase, classify, and draftResolution behind timeout, catch, and circuit behavior. On timeout, exception, or open circuit, discard any partial draft and route to Support with deadline_exceeded or dependency_failed. Use the n9 fake’s timeout and throw configuration. Do not re-prove guard or policy branches.",
+      "acceptance_criteria": [
+        "Timeout, thrown dependency, or open circuit discards any partial draft and routes to support with deadline_exceeded or dependency_failed",
+        "A successful path is unchanged when the circuit is closed"
+      ],
+      "depends_on": ["n12"]
+    },
+    {
+      "id": "n14",
+      "intent": "Expose POST /triage",
+      "change_spec": "Add POST /triage that parses the request contract, calls the pipeline, and returns the Decision JSON. There is no send path, Case creation, or Approval Task. Invalid requests are rejected without calling the model. Verify with HTTP tests. Logging redaction is a later node.",
+      "acceptance_criteria": [
+        "POST /triage returns 200 and a schema-valid Decision for a valid request",
+        "Invalid requests are rejected without calling the model",
+        "The handler does not send a Member-Facing Response or write a Case"
+      ],
+      "depends_on": ["n13"]
+    },
+    {
+      "id": "n15",
+      "intent": "Redact Intake secrets from logs",
+      "change_spec": "Constrain POST /triage logging to Decision fields and Reason Codes. A test spy on the logger must never see raw Intake text, prompts, memberRef, claims, or routing payloads.",
+      "acceptance_criteria": [
+        "A test spy on the logger never sees raw Intake text, memberRef, claims, prompts, or routing payloads",
+        "Logs may include Decision fields and Reason Codes"
+      ],
+      "depends_on": ["n14"]
+    },
+    {
+      "id": "n16",
+      "intent": "Cover the twelve RFC demonstration scenarios in CI",
+      "change_spec": "Add a deterministic Vitest table for every Demonstration Scenarios row in docs/rfc.md. Fakes only. Each row asserts the expected action, Destination or draft, and Reason Code. Do not assert an 80/20 mix. Blocking Safety Gate negatives are a later node.",
+      "acceptance_criteria": [
+        "Each of the twelve RFC demonstration scenarios has a test with the expected action, Destination or draft, and Reason Code",
+        "The suite does not require a live model provider"
+      ],
+      "depends_on": ["n13"]
+    },
+    {
+      "id": "n17",
+      "intent": "Fail CI on RFC Blocking Safety Gates",
+      "change_spec": "Add deterministic tests, fakes only, that fail the suite on every Blocking CI Safety Gate in docs/rfc.md: prohibited Resolution, humanApprovalRequired not true, Sensitive Signal leakage to the model, wrong Destination, malformed output, unsupported citation, unsafe timeout or circuit fallback. Do not restate the twelve demonstration rows.",
+      "acceptance_criteria": [
+        "The suite fails on every Blocking CI Safety Gate listed in docs/rfc.md",
+        "The suite does not require a live model provider"
+      ],
+      "depends_on": ["n13"]
+    },
+    {
+      "id": "n18",
+      "intent": "Add a synthetic scenario runner",
+      "change_spec": "Add a CLI or script that submits the RFC demonstration Intakes to POST /triage (or the same handler) and prints each Decision. Support a fake-gateway mode so the happy path is demoable without a live provider. Verify by running the script once against the twelve scenarios.",
+      "acceptance_criteria": [
+        "The runner executes all twelve RFC scenarios and exits 0 in fake mode",
+        "Printed output includes intakeId, action, Destination or draft citations, and reasonCodes for each scenario",
+        "Live-provider mode is optional and not required for acceptance"
+      ],
+      "depends_on": ["n14"]
+    }
+  ]
+}

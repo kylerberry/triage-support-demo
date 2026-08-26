@@ -2,9 +2,10 @@
 
 ## Objective
 
-Within 3–4 hours, produce an RFC and a working prototype for customer-service triage and support. The prototype should credibly demonstrate a path to resolving roughly 80% of representative intakes with AI; the remaining cases must be clearly escalated to a human.
+Within 3–4 hours, produce an RFC and a working prototype for customer-service triage and support. The prototype should credibly demonstrate a path to resolving roughly 80% of representative intakes with AI; the remaining cases must be clearly escalated to a human. This system is a proposed replacement for an existing, manual process today.
 
-Optimize for a coherent, correct vertical slice and visible product judgment—not feature breadth, production hardening, or speculative architecture.
+Optimize for a coherent, correct vertical slice and visible product judgment—not feature breadth, production hardening, or speculative architecture. Reasonable assumptions, clearly stated,
+are a positive signal, not a gap.
 
 ## Delivery Bar
 
