@@ -2,7 +2,9 @@
 
 Fail-closed `POST /triage` for authenticated Member Intakes. AI drafts eligible General Q&A or routes Product Feedback and Compliance. Everything else goes to Support. A human must approve every Member-Facing Response. **This prototype does not send one.**
 
-Spec: [`docs/rfc.md`](docs/rfc.md). Terms: [`CONTEXT.md`](CONTEXT.md).
+Spec: [`docs/rfc.md`](docs/rfc.md).
+Terms: [`CONTEXT.md`](CONTEXT.md).
+Bring Business Team Along: [`docs/bring-business-team-along.md`](docs/bring-business-team-along.md).
 
 Synthetic data only. Not Bankrate production policy, not measured 80% performance.
 
@@ -69,15 +71,3 @@ From the RFC. They narrow the prototype; they are not claims about Bankrate toda
 - Circuits stay open after a failure. No half-open recovery in this slice.
 - Empty draft `citations: []` is still schema-valid.
 - Residual PII (names, quasi-identifiers) can still reach the model after scrub.
-
-## Layout
-
-| Path | Role |
-| --- | --- |
-| `src/app.ts` | `POST /triage` |
-| `src/pipeline.ts` | Layer 1 → classify → policy or draft |
-| `src/policies.ts` | Category policy constants |
-| `src/knowledge-base.ts` | Lexical fixture retrieval |
-| `src/model-gateway.ts` | `classify` / `draftResolution` + fake |
-| `src/demonstration-scenarios.ts` | Twelve RFC rows |
-| `src/blocking-ci-safety-gates.test.ts` | Blocking CI negatives |
