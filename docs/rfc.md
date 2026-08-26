@@ -242,7 +242,7 @@ Lexical retrieval matches any article that shares at least one non-stopword term
 - **HTTP/schema/test tooling:** Hono, Zod, Vitest.
 - **Model:** `ModelGateway.classify` and `ModelGateway.draftResolution`; fakes in CI and as a runner option.
 - **Knowledge:** local curated articles behind a lexical `KnowledgeBase`.
-- **Demo:** endpoint plus a script that runs the synthetic scenarios below.
+- **Demo:** `POST /triage` plus `npm run demo:scenarios` (fake gateway; twelve scenarios below).
 
 ## Evaluation
 
