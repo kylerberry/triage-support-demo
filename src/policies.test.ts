@@ -37,7 +37,7 @@ describe('categoryPolicies', () => {
   })
 
   it.each(actionDestinationTable)(
-    'maps %s to %s via %s',
+    'maps %s to action %s and destination %s',
     (category, action, destination) => {
       const policy = categoryPolicies[category]
 
@@ -49,18 +49,13 @@ describe('categoryPolicies', () => {
   it('requires action, destination, draftingRule, and context on every policy', () => {
     const requiredFields = [
       'action',
+      'context',
       'destination',
       'draftingRule',
-      'context',
     ] as const
 
-    for (const [category, policy] of Object.entries(categoryPolicies)) {
-      expect(Object.keys(policy).sort()).toEqual([
-        'action',
-        'context',
-        'destination',
-        'draftingRule',
-      ])
+    for (const policy of Object.values(categoryPolicies)) {
+      expect(Object.keys(policy).sort()).toEqual([...requiredFields])
 
       for (const field of requiredFields) {
         const value = policy[field]
