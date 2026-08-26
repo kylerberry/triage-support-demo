@@ -6,7 +6,7 @@
 import { Hono } from 'hono'
 
 import { FakeModelGateway, type ModelGateway } from './model-gateway.js'
-import { runPipeline } from './pipeline.js'
+import { runPipeline, type PipelineDeps } from './pipeline.js'
 import {
   DecisionSchema,
   type Decision,
@@ -40,7 +40,7 @@ const haltDestination = {
   insufficient_information: 'support',
 } as const
 
-export function createApp(gateway: ModelGateway) {
+export function createApp(gateway: ModelGateway, deps?: PipelineDeps) {
   const app = new Hono()
 
   app.post('/triage', async (c) => {
@@ -57,7 +57,7 @@ export function createApp(gateway: ModelGateway) {
     }
 
     const { text, intakeId } = parsed.data
-    const result = await runPipeline(text, intakeId, gateway)
+    const result = await runPipeline(text, intakeId, gateway, deps)
     const decision =
       result.status === 'continued'
         ? result.decision
