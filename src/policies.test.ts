@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { categoryPolicies } from './policies.js'
 
 const actionDestinationTable = [
-  ['general_qa', 'draft_resolution', 'support'],
+  ['general_qa', 'draft_resolution', null],
   ['product_feedback', 'route_to_team', 'product'],
   ['compliance', 'route_to_team', 'legal_compliance'],
 ] as const
@@ -46,23 +46,32 @@ describe('categoryPolicies', () => {
     },
   )
 
-  it('requires action, destination, draftingRule, and context on every policy', () => {
+  it('keeps general_qa review off the Support route vocabulary', () => {
+    expect(categoryPolicies.general_qa.review).toBe('support_approval')
+    expect(categoryPolicies.general_qa.destination).toBeNull()
+    expect(categoryPolicies.product_feedback.review).toBeNull()
+    expect(categoryPolicies.compliance.review).toBeNull()
+  })
+
+  it('requires action, destination, review, draftingRule, and context on every policy', () => {
     const requiredFields = [
       'action',
       'context',
       'destination',
       'draftingRule',
+      'review',
     ] as const
 
     for (const policy of Object.values(categoryPolicies)) {
       expect(Object.keys(policy).sort()).toEqual([...requiredFields])
-
-      for (const field of requiredFields) {
-        const value = policy[field]
-
-        expect(typeof value).toBe('string')
-        expect(value.length).toBeGreaterThan(0)
-      }
+      expect(policy).toHaveProperty('action')
+      expect(policy).toHaveProperty('destination')
+      expect(policy).toHaveProperty('review')
+      expect(policy).toHaveProperty('draftingRule')
+      expect(policy).toHaveProperty('context')
+      expect(policy.action.length).toBeGreaterThan(0)
+      expect(policy.draftingRule.length).toBeGreaterThan(0)
+      expect(policy.context.length).toBeGreaterThan(0)
     }
   })
 
