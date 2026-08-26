@@ -1,3 +1,7 @@
+// RFC Demonstration Scenarios (docs/rfc.md): one FakeModelGateway row each.
+// Layer 1 Sensitive Signal is PipelineHalted, not a Legal Decision.
+// Do not assert an 80/20 mix.
+
 import { describe, expect, it } from 'vitest'
 
 import { DependencyCircuits } from './dependency-guard.js'
