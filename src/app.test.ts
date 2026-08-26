@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { createApp } from './app.js'
+import { createApp, type DecisionLogger } from './app.js'
 import { FakeModelGateway } from './model-gateway.js'
 import { DecisionSchema } from './schemas.js'
 
@@ -20,8 +20,12 @@ function validBody(
   }
 }
 
-async function postTriage(gateway: FakeModelGateway, body: BodyInit) {
-  const app = createApp(gateway)
+async function postTriage(
+  gateway: FakeModelGateway,
+  body: BodyInit,
+  logger?: DecisionLogger,
+) {
+  const app = createApp(gateway, logger)
   return app.request('/triage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -181,5 +185,99 @@ describe('POST /triage', () => {
     expect(body).not.toHaveProperty('approvalTask')
     expect(body).not.toHaveProperty('memberFacingResponse')
     expect(body).not.toHaveProperty('sent')
+  })
+
+  it('logs only allowlisted Decision audit fields on a valid 200 and never raw Intake data', async () => {
+    const rawTextCanary = 'How do I reset my password? alpha-rawtext-7731'
+    const memberRefCanary = 'member-ref-bravo-8842'
+    const claimsCanary = 'claims-golf-2290'
+    const logger = { log: vi.fn() }
+    const res = await postTriage(
+      new FakeModelGateway(),
+      JSON.stringify({
+        intakeId,
+        memberRef: memberRefCanary,
+        claims: { loyalty: claimsCanary, vip: true },
+        text: rawTextCanary,
+        metadata: {},
+      }),
+      logger,
+    )
+
+    expect(res.status).toBe(200)
+    expect(logger.log).toHaveBeenCalledTimes(1)
+    expect(logger.log.mock.calls[0][0]).toEqual({
+      intakeId,
+      category: 'general_qa',
+      action: 'draft_resolution',
+      classificationConfidence: 'high',
+      humanApprovalRequired: true,
+      reasonCodes: ['knowledge_sources_found'],
+    })
+
+    const dumped = JSON.stringify(logger.log.mock.calls)
+    for (const forbidden of [
+      'alpha-rawtext-7731',
+      memberRefCanary,
+      claimsCanary,
+      'draftResponse',
+      'kb.password-reset.v1',
+      'route',
+      'intakeRef',
+      'destination',
+      'safeSummary',
+      'flags',
+    ]) {
+      expect(dumped).not.toContain(forbidden)
+    }
+  })
+
+  it('logs allowlisted fields and Reason Codes on a sensitive-signal 200 without routing payload', async () => {
+    const logger = { log: vi.fn() }
+    const res = await postTriage(
+      new FakeModelGateway(),
+      JSON.stringify(
+        validBody('I filed a CFPB complaint about misleading rates'),
+      ),
+      logger,
+    )
+
+    expect(res.status).toBe(200)
+    expect(logger.log).toHaveBeenCalledTimes(1)
+    expect(logger.log.mock.calls[0][0]).toEqual({
+      intakeId,
+      category: null,
+      action: 'route_to_team',
+      classificationConfidence: 'unavailable',
+      humanApprovalRequired: true,
+      reasonCodes: ['sensitive_signal'],
+    })
+
+    const dumped = JSON.stringify(logger.log.mock.calls)
+    for (const forbidden of [
+      'legal_compliance',
+      'intakeRef',
+      'destination',
+      'safeSummary',
+      'flags',
+      'member-n14',
+    ]) {
+      expect(dumped).not.toContain(forbidden)
+    }
+  })
+
+  it('makes no logger calls for invalid requests', async () => {
+    const gateway = new FakeModelGateway()
+    const logger = { log: vi.fn() }
+    const malformed = await postTriage(gateway, '{"intakeId": ', logger)
+    const schemaInvalid = await postTriage(
+      gateway,
+      JSON.stringify({ intakeId, text: 'x', metadata: {} }),
+      logger,
+    )
+
+    expect(malformed.status).toBe(400)
+    expect(schemaInvalid.status).toBe(400)
+    expect(logger.log).not.toHaveBeenCalled()
   })
 })
