@@ -22,6 +22,7 @@ describe('sensitiveSignalDetector', () => {
     ['This is a fair lending violation', 'discrimination'],
     ['My card 4111111111111111 was charged twice', 'pan_or_ssn'],
     ['Card number 4111 1111 1111 1111 needs attention', 'pan_or_ssn'],
+    ['Card number 4111-1111-1111-1111 needs attention', 'pan_or_ssn'],
     ['The SSN 123-45-6789 on file is wrong', 'pan_or_ssn'],
   ])('flags the RFC example intake %s as %s', (rawText, signal) => {
     expect(sensitiveSignalDetector.detect(rawText)).toStrictEqual({
