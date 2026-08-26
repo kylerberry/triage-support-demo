@@ -141,7 +141,7 @@ The minimum structured information a receiving team needs to handle a Routed Int
 _Avoid_: Intake, profile record
 
 **Direct Identifier**:
-A fixture-detectable value that directly identifies a Member (email, phone, SSN-like, account-number-like) and is replaced before model processing. Residual names and quasi-identifiers are not claimed to be removed.
+A fixture-detectable value that directly identifies a Member (email, phone, account-number-like) and is replaced before model processing. SSN-like and full payment-card values are Sensitive Signals handled before this stage. Residual names and quasi-identifiers are not claimed to be removed.
 _Avoid_: Sensitive Signal, profile fact
 
 **Sanitized Intake**:
