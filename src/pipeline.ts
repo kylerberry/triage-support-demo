@@ -217,12 +217,14 @@ export async function runPipeline(
   gateway: ModelGateway,
   deps: PipelineDeps = {},
 ): Promise<PipelineResult> {
-  const match = sensitiveSignalDetector.detect(rawText)
+  const text = rawText.trim()
+
+  const match = sensitiveSignalDetector.detect(text)
   if (match) {
     return { status: 'halted', reason: 'sensitive_signal', match }
   }
 
-  if (rawText.trim() === '') {
+  if (text === '') {
     return { status: 'halted', reason: 'insufficient_information' }
   }
 
@@ -232,7 +234,7 @@ export async function runPipeline(
     circuits: deps.circuits ?? defaultCircuits,
     timeoutMs: deps.timeoutMs ?? defaultTimeoutMs,
   }
-  const sanitizedText = scrubDirectIdentifiers(rawText)
+  const sanitizedText = scrubDirectIdentifiers(text)
   const classified = await callGuarded(
     context.circuits,
     'classify',
@@ -244,7 +246,7 @@ export async function runPipeline(
       status: 'continued',
       sanitizedText,
       classification: unavailableClassification,
-      directIdentifiersReplaced: sanitizedText !== rawText,
+      directIdentifiersReplaced: sanitizedText !== text,
       decision: supportRouteDecision(intakeId, 'unavailable', [
         classified.reason,
       ]),
@@ -256,7 +258,7 @@ export async function runPipeline(
     status: 'continued',
     sanitizedText,
     classification,
-    directIdentifiersReplaced: sanitizedText !== rawText,
+    directIdentifiersReplaced: sanitizedText !== text,
     decision: await mapClassificationToDecision(
       intakeId,
       classification,
