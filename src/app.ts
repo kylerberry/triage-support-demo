@@ -9,7 +9,8 @@
 
 import { Hono } from 'hono'
 
-import { FakeModelGateway, type ModelGateway } from './model-gateway.js'
+import { type ModelGateway } from './model-gateway.js'
+import { createGatewayFromEnv } from './openai-model-gateway.js'
 import { runPipeline, type PipelineDeps } from './pipeline.js'
 import {
   DecisionSchema,
@@ -111,4 +112,4 @@ export function createApp(
   return app
 }
 
-export const app = createApp(new FakeModelGateway())
+export const app = createApp(createGatewayFromEnv())
